@@ -1,7 +1,7 @@
 /**
   * The entry point.
   *
-  * @module tspace-echo-spear
+  * @module tspace-0spear
   */
 export * from './core/decorators'
 export * from './core/types'
