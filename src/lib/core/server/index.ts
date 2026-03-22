@@ -35,9 +35,9 @@ import type {
 
 /**
  * 
- * The 'Spear' class is used to create a server and handle HTTP requests.
+ * The '0Spear' class is used to create a server and handle HTTP requests.
  * 
- * @returns {Spear} application
+ * @returns {ZeroSpear} application
  * @example
  * new Spear()
  *  .get('/' , () => 'Hello world!')
@@ -49,7 +49,7 @@ import type {
  *  .listen(3000 , () => console.log('server listening on port : 3000'))
  *   
  */
-class Spear {
+class ZeroSpear {
 
     private readonly _controllers ?: (new () => any)[] | { folder : string ,  name ?: RegExp}
     private readonly _middlewares ?: TRequestFunction[] | { folder : string , name ?: RegExp}
@@ -297,17 +297,18 @@ class Spear {
             }
 
             if(!isFileUpload) return next()
-
+        
             if(req?.files != null) return next()
 
+            //@ts-ignore
             Promise.resolve(this._parser.files({ req , res, options : this._fileUploadOptions}))
-            .then(r => {
+            .then((r:any) => {
                 req.files = r.files
                 req.body = r.body
                 return next()
             })
             .catch(err => {
-                return next()
+                return next(err)
             })
         })
 
@@ -1121,74 +1122,68 @@ class Spear {
         return
     }
 
-    private _wrapHandlers = (...handlers : ((ctx : TContext , next : TNextFunction) => any)[]) : any => {
+    private _wrapHandlers(...handlers: ((ctx: TContext, next: TNextFunction) => any)[]) {
 
-        return (req : IncomingMessage, res : ServerResponse , ps : Record<string,any>) => {
+        return (req: IncomingMessage, res: ServerResponse, ps: Record<string, any>) => {
 
-            const runHandler = (index : number = 0) : any => {
-               try {
+            if (res.writableEnded) return;
 
-                const response = this._customizeResponse(req,res) as TResponse
-                
-                const request = req as TRequest
+            try {
+                const request = req as TRequest;
+                const response = this._customizeResponse(req, res) as TResponse;
 
-                request.params = ps
+                const url = new URL(req.url!, "http://localhost");
 
-                const params = ps as TParams
-                
-                const body = request.body as TBody
-                
-                const files = request.files as TFiles
+                const ctx: TContext = {
+                    req: request,
+                    res: response,
+                    //@ts-expect-error
+                    headers: request.headers || {},
+                    params: ps || {},
+                    query: Object.fromEntries(url.searchParams),
+                    body: request.body || {},
+                    files: request.files || {},
+                    cookies: request.cookies || {}
+                };
 
-                const cookies = request.cookies as TCookies
+                let index = -1;
 
-                const headers = request.headers as THeaders
-                
-                const query = request.query as TQuery
+                const next: TNextFunction = (err?: any) => {
+                    index++;
 
-                const RecordOrEmptyRecord = (data : any) => {
-                    if(data == null) return {}
-                    return Object.keys(data).length ? data : {}
-                }
-               
+                    if (err) {
+                        return this._nextFunction(ctx)(err);
+                    }
+
+                    if (index >= handlers.length) return;
+
+                    const handler = handlers[index];
+
+                    // 🔥 handler สุดท้าย
+                    if (index === handlers.length - 1) {
+                        return this._wrapResponse(handler)(ctx, next);
+                    }
+
+                    return handler(ctx, next);
+                };
+
+                return next();
+
+            } catch (err) {
                 const ctx = {
-                    req : request, 
-                    res : response,
-                    headers : RecordOrEmptyRecord(headers),
-                    params  : RecordOrEmptyRecord(params),
-                    query   : RecordOrEmptyRecord(query),
-                    body    : RecordOrEmptyRecord(body),
-                    files   : RecordOrEmptyRecord(files),
-                    cookies : RecordOrEmptyRecord(cookies) 
-                }
-              
-                if(index === handlers.length - 1) {
-                    return this._wrapResponse(handlers[index].bind(handlers[index]))(ctx, this._nextFunction(ctx))
-                }
-
-                return handlers[index](ctx , () => {
-                    return runHandler(index + 1)
-                })
-
-               } catch (err) {
-
-                const ctx = {
-                    req, 
-                    res : this._customizeResponse(req,res), 
-                    params : Object.keys(ps).length ? ps : {},
-                    headers : {},
-                    query : {},
+                    req,
+                    res: this._customizeResponse(req, res),
+                    params: ps || {},
+                    headers: {},
+                    query: {},
                     body: {},
                     files: {},
                     cookies: {}
-                }
+                };
 
-                return this._nextFunction(ctx)(err)
-               }
+                return this._nextFunction(ctx)(err);
             }
-
-            runHandler()
-        }
+        };
     }
 
     private _wrapResponse(handler: (ctx: TContext, next: TNextFunction) => any) {
@@ -1424,6 +1419,6 @@ class Spear {
       
 }
 
-export class Application extends Spear {}
-export { Spear }
-export default Spear
+export class Application extends ZeroSpear {}
+export { ZeroSpear }
+export default ZeroSpear

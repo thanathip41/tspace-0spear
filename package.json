@@ -2,10 +2,10 @@
   "name": "tspace-0spear",
   "version": "1.0.0",
   "description": "tspace-0spear is a lightweight API framework for Node.js that is fast and highly focused on providing the best developer experience. It aims to be performant HTTP & Websocket Server using uWebSockets written in C++.",
-  "main": "./build/lib/index.js",
-  "types": "./build/lib/index.d.ts",
+  "main": "./dist/lib/index.js",
+  "types": "./dist/lib/index.d.ts",
   "files": [
-    "build"
+    "dist"
   ],
   "type": "commonjs",
   "repository": {
@@ -15,9 +15,14 @@
   "keywords": [
     "tspace",
     "tspace-0spear",
-    "web",
-    "framework",
-    "web framework"
+    "fast",
+    "node",
+    "nodejs",
+    "http",
+    "https",
+    "uws",
+    "uwebsockets.js",
+    "uWebSockets.js"
   ],
   "author": "Thanathip (https://github.com/thanathip41)",
   "license": "MIT",
@@ -37,16 +42,18 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "find-my-way": "8.2.0",
+    "find-my-way": "9.5.0",
     "mime-types": "2.1.35",
     "on-finished": "2.4.1",
     "reflect-metadata": "0.1.14",
-    "swagger-ui-dist": "5.17.10",
-    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.44.0"
+    "swagger-ui-dist": "5.32.0",
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.75.0"
   },
   "devDependencies": {
+    "fastify": "4.28.1",
     "@ionited/mesh": "^0.6.2",
     "@types/autocannon": "^7.12.5",
+    "@types/busboy": "^1.5.4",
     "@types/express": "^4.17.21",
     "@types/mime-types": "^2.1.4",
     "@types/node": "^16.4.0",
@@ -54,7 +61,9 @@
     "@types/swagger-ui-dist": "^3.30.4",
     "@types/yargs": "^17.0.32",
     "autocannon": "^7.15.0",
+    "nanoexpress": "^6.4.4",
     "ts-node": "^10.9.2",
+    "tspace-spear": "^1.1.5",
     "typescript": "^5.4.5",
     "yargs": "^17.7.2"
   }

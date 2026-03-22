@@ -44,7 +44,7 @@ new ZeroSpear()
 
 ### CRUD
 ```js
-import Spear from "tspace-0spear";
+import ZeroSpear from "tspace-0spear";
 
 const spears = [
   {
@@ -108,7 +108,7 @@ new ZeroSpear()
 
 ## Cluster
 ```js
-import Spear from "tspace-0spear";
+import ZeroSpear from "tspace-0spear";
 new ZeroSpear({
   cluster : {
     use : true,
@@ -257,7 +257,7 @@ class CatController {
   }
 }
 
-import Spear , { Router, TContext, TNextFunction } from "tspace-0spear";
+import ZeroSpear , { Router, TContext, TNextFunction } from "tspace-0spear";
 
 import CatController from './cat-controller.ts'
 
@@ -295,7 +295,7 @@ import CatController from './cat-controller.ts'
 ## Router
 
 ```js
-import Spear , { Router, TContext, TNextFunction } from "tspace-0spear";
+import ZeroSpear , { Router, TContext, TNextFunction } from "tspace-0spear";
 
 const app = new ZeroSpear()
 

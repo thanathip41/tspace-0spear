@@ -1,5 +1,5 @@
-import fs                from 'fs'
-import path              from 'path'
+import fsSystem          from 'fs'
+import pathSystem        from 'path'
 import crypto            from 'crypto'
 import mime              from 'mime-types'
 import swaggerUiDist     from 'swagger-ui-dist'
@@ -7,6 +7,8 @@ import {
     IncomingMessage, 
     ServerResponse 
 } from "http"
+
+import { HttpResponse } from 'uWebSockets.js'
 
 import { 
     TBody, 
@@ -16,139 +18,243 @@ import {
 
 export class ParserFactory {
 
-    async files ({ req , res , options } : { 
-        req : IncomingMessage
-        res : any
-        options : {
-            limit : number
-            tempFileDir : string
-            removeTempFile : {
-                remove :  boolean,
-                ms      : number
+    public async files({
+        req,
+        res,
+        options
+    }: {
+        req: IncomingMessage
+        res: { uwsRes: HttpResponse }
+        options: {
+            limit: number
+            tempFileDir: string
+            removeTempFile: {
+            remove: boolean,
+            ms: number
             }
         }
     }) {
 
         const temp = options.tempFileDir
 
-        if (!fs.existsSync(temp)) {
-            try { fs.mkdirSync(temp, { recursive: true })} catch (err) {}
+        if (!fsSystem.existsSync(temp)) {
+            try { fsSystem.mkdirSync(temp, { recursive: true }) } catch {}
         }
 
         const removeTemp = (fileTemp : string , ms : number) => {
             const remove = () => {
-                try { fs.unlinkSync(fileTemp) } catch (err) {}
+                try { fsSystem.unlinkSync(fileTemp) } catch (err) {}
             }
             setTimeout(remove, ms)
         }
 
         const contentType = req.headers['content-type'] ?? ''
-        const boundary = contentType.split('; ')[1].replace('boundary=', '')
+        const boundary = contentType.split('boundary=')[1]
 
-        return new Promise<{ body : TBody , files : TFiles}>((resolve, reject) => {
-            const boundaryBuffer = Buffer.from(`--${boundary}`);
-            let buffer : any = Buffer.alloc(0);
-            let body : Record<string,any> = {}
-            let files : Record<string,any> = {}
+        if (!boundary) {
+            throw new Error('Invalid multipart/form-data (no boundary)')
+        }
 
-            res.uwsRes.onData((chunk : WithImplicitCoercion<ArrayBuffer | SharedArrayBuffer>, isLast : boolean) => {
-                buffer = Buffer.concat([buffer, Buffer.from(chunk)]);
+        const boundaryBuf = Buffer.from(`\r\n--${boundary}`)
 
-                if (isLast) {
+        return new Promise<{ body: TBody, files: TFiles }>((resolve, reject) => {
 
-                    try {
+            let body: Record<string, any> = {};
 
-                        let start = 0;
-                        const boundaryLength = boundaryBuffer.length;
+            let files: Record<string, any> = {};
 
-                        while ((start = buffer.indexOf(boundaryBuffer, start)) !== -1) {
-                            let end = buffer.indexOf(boundaryBuffer, start + boundaryLength)
+            let buffer: Buffer = Buffer.alloc(0)
 
-                            if (end === -1) {
-                                end = buffer.length;
-                            }
+            let currentFileStream: fsSystem.WriteStream | null = null
+            let file: any = null
 
-                            const part = buffer.slice(start + boundaryLength + 2, end - 2)
+            let headerParsed = false
+            let aborted = false
 
-                            start = end
+            const fail = (err: Error) => {
+                if (aborted) return;
+                
+                aborted = true
 
-                            const contentDispositionMatch = part.toString()
-                            .match(/Content-Disposition: form-data; name="([^"]+)"(?:; filename="([^"]+)")?/)
+                try { currentFileStream?.destroy() } catch {}
+                try { file?.tempFilePath && fsSystem.unlinkSync(file.tempFilePath) } catch {}
+                try { res.uwsRes.close() } catch {}
 
-                            if(!contentDispositionMatch) continue
+                return reject(err)
+            }
 
-                            const contentTypeMatch = part.toString().match(/Content-Type: ([^\r\n]*)/)
-                            const fieldName = contentDispositionMatch[1]
-                            const fileName = contentDispositionMatch[2]
-                            const fileStart = part.indexOf('\r\n\r\n') + 4
-                            const fileData = part.slice(fileStart)
+            res.uwsRes.onData((chunk: ArrayBuffer, isLast: boolean) => {
 
-                            if(fileName == null || fileName === '') {
-                                body[fieldName] = fileData.toString()
+                if (aborted) return
+
+                const data: Buffer = Buffer.from(new Uint8Array(chunk))
+
+                //@ts-ignore
+                buffer = buffer.length === 0 ? data : Buffer.concat([buffer, data])
+
+                try {
+
+                    while (true) {
+
+                        if (!headerParsed) {
+                            const headerEnd = buffer.indexOf('\r\n\r\n')
+                            if (headerEnd === -1) break
+
+                            const header = buffer.slice(0, headerEnd).toString()
+                            buffer = buffer.slice(headerEnd + 4)
+
+                            const disposition = header.match(/name="([^"]+)"(?:; filename="([^"]+)")?/)
+                            if (!disposition) continue
+
+                            const fieldName = disposition[1]
+                            const fileName = disposition[2]
+
+
+                            if (!fileName) {
+                            
+                                const nextBoundary = buffer.indexOf(boundaryBuf as unknown as string)
+
+                                if (nextBoundary === -1) break
+
+                                const value = buffer.slice(0, nextBoundary).toString().trim()
+                                body[fieldName] = value
+
+                                buffer = buffer.slice(nextBoundary + boundaryBuf.length)
                                 continue
                             }
 
+                            const contentTypeMatch = header.match(/Content-Type: ([^\r\n]+)/);
+
+                            const mimetype = contentTypeMatch ? contentTypeMatch[1] : 'application/octet-stream';
+
+                            const extension = mime.extension(mimetype) 
+                            || pathSystem.extname(fileName).replace('.', '') 
+                            || 'bin'
+
                             const tempFilename = crypto.randomBytes(16).toString('hex')
 
-                            const filePath = path.join(path.resolve(),`${temp}/${tempFilename}`)
+                            const filePath = pathSystem.join(pathSystem.resolve(),`${temp}/${tempFilename}`)
+                            
+                            currentFileStream = fsSystem.createWriteStream(filePath)
 
-                            const fileStream = fs.createWriteStream(filePath)
-
-                            fileStream.write(fileData)
-
-                            fileStream.end()
-
-                            const file = {
-                                originalFilename: fileName,
-                                size : fileData.length,
-                                filepath : filePath,
-                                newFilename : tempFilename,
-                                mimetype : contentTypeMatch ? contentTypeMatch[1] : 'application/octet-stream'
-                            }
-
-                            if(file.size > options.limit) {
-                                fs.unlinkSync(file.filepath)
-                                throw new Error(`The file '${fieldName}' is too large to be uploaded. The limit is '${options.limit}' bytes.`)
-                            }
-
-                            if (!files[fieldName]) {
-                                files[fieldName] = []
-                            }
-
-                            files[fieldName].push({
-                                name: file.originalFilename,
-                                tempFilePath: file.filepath,
-                                tempFileName: file.newFilename,
-                                mimetype: file.mimetype,
-                                extension : String(mime.extension(String(file.mimetype))),                                       
-                                size: file.size,
-                                sizes : {
-                                    bytes : file.size,
-                                    kb    : file.size / 1024,
-                                    mb    : file.size / 1024 / 1024,
-                                    gb    : file.size / 1024 / 1024 / 1024
+                            file = {
+                                name         : fileName,
+                                tempFilePath : filePath,
+                                tempFileName : tempFilename,
+                                mimetype     : mimetype,
+                                extension    : extension,
+                                size: 0,
+                                sizes: {
+                                    bytes: 0,
+                                    kb: 0,
+                                    mb: 0,
+                                    gb: 0
                                 },
-                                remove : () => fs.unlinkSync(file.filepath)
-                            })
+                                 write : (to : string) => {
+                                    return new Promise((resolve, reject) => {
+                                        fsSystem.createReadStream(filePath)
+                                        .pipe(fsSystem.createWriteStream(to))
+                                        .on('finish', () => {
+                                        return resolve(null)
+                                        })
+                                        .on('error', (err) => {
+                                            return reject(err)
+                                        });
+                                    })
+                                },
+                                remove : () => {
+                                    return new Promise(resolve => setTimeout(() => {
+                                        fsSystem.unlinkSync(filePath)
+                                        return resolve(null)
+                                    },100))
+                                }
+                            }
 
-                            if(!options.removeTempFile.remove) continue
+                            if (!files[fieldName]) files[fieldName] = []
+                            
+                            files[fieldName].push(file)
 
-                            removeTemp(file.filepath , options.removeTempFile.ms)
+                            if (options.removeTempFile.remove) {
+                                removeTemp(filePath, options.removeTempFile.ms)
+                            }
+
+                            headerParsed = true
                         }
 
-                        return resolve({ body, files })
+                        const boundaryIndex = buffer.indexOf(boundaryBuf as unknown as string)
 
-                    } catch (err) {
+                        if (boundaryIndex === -1) {
 
-                        return reject(err)
+                            const safeLength = buffer.length - boundaryBuf.length
+
+                            if (safeLength > 0) {
+
+                                const writeChunk = buffer.slice(0, safeLength)
+
+                                currentFileStream!.write(writeChunk)
+                                file.size += writeChunk.length
+
+                            file.sizes = {
+                                    bytes: file.size,
+                                    kb: file.size / 1024,
+                                    mb: file.size / 1024 / 1024,
+                                    gb: file.size / 1024 / 1024 / 1024
+                                }
+
+                                if (file.size > options.limit) {
+                                    return fail(new Error(`File too large (limit ${options.limit} bytes)`))
+                                }
+
+                                buffer = buffer.slice(safeLength)
+                            }
+
+                            break
+                        }
+
+                        const filePart = buffer.slice(0, boundaryIndex)
+
+                        currentFileStream!.write(filePart)
+
+                        file.size += filePart.length
+
+                        file.sizes = {
+                            bytes: file.size,
+                            kb: file.size / 1024,
+                            mb: file.size / 1024 / 1024,
+                            gb: file.size / 1024 / 1024 / 1024
+                        }
+
+                        if (file.size > options.limit) {
+                            return fail(new Error(`File too large (limit ${options.limit} bytes)`))
+                        }
+
+                        currentFileStream!.end()
+
+                        currentFileStream = null
+                        
+                        file = null
+
+                        buffer = buffer.slice(boundaryIndex + boundaryBuf.length)
+
+                        headerParsed = false
                     }
+
+                    if (isLast && !aborted) {
+                        if (currentFileStream) currentFileStream.end()
+
+                        return resolve({ body, files })
+                    }
+
+                } catch (err: any) {
+
+                    return fail(err)
                 }
             })
         })
-
     }
+
     
-    body (res : any) {
+    public body (res : any) {
 
         return new Promise((resolve, reject) => {
             
@@ -170,7 +276,7 @@ export class ParserFactory {
         });
     }
 
-    cookies (req : IncomingMessage) {
+    public cookies (req : IncomingMessage) {
         const cookies: Record<string,any> = {}
 
         const cookieString = req.headers?.cookie
@@ -195,7 +301,7 @@ export class ParserFactory {
         return cookies;
     }
 
-    swagger (doc : TSwaggerDoc) {
+    public swagger (doc : TSwaggerDoc) {
         
         const spec = {
             openapi : "3.1.0",
@@ -513,12 +619,12 @@ export class ParserFactory {
             }
             
             const requestedFilePath :any = params['*'];
-            const filePath = path.join(swaggerUiPath, requestedFilePath);
-            const extname = path.extname(filePath)
+            const filePath = pathSystem.join(swaggerUiPath, requestedFilePath);
+            const extname = pathSystem.extname(filePath)
             const contentType = mimeTypes[extname] || 'text/html'
             
             try {
-                const content = fs.readFileSync(filePath)
+                const content = fsSystem.readFileSync(filePath)
 
                 res.writeHead(200, {'Content-Type': contentType })
 

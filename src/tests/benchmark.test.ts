@@ -3,7 +3,7 @@ import Fastify from 'fastify'
 import express, { Request, Response } from 'express'
 import http from 'http'
 import yargs from 'yargs';
-import Spear from "../lib"
+import ZeroSpear from "../lib"
 
 const MESSAGE = 'Hello world!'
 
@@ -63,7 +63,7 @@ function runFastify () {
 function runSpear () {
     const port = 3003
 
-    new Spear()
+    new ZeroSpear()
     .get('/' , ({ res }) => MESSAGE)
     .listen(port , () => 
         console.log(`server 'Spear' running at : http://localhost:${port}`)

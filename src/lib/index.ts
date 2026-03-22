@@ -8,6 +8,6 @@ export * from './core/types'
 export * from './core/server/router'
 export * from './core/server'
 
-import Spear from './core/server';
+import ZeroSpear from './core/server';
 
-export default Spear
+export default ZeroSpear
